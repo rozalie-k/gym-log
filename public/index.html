@@ -11,12 +11,10 @@
 <style>:root{color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px);background:#0B0B0B}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#0B0B0B;color:#E4E2DE;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}img{max-width:100%}[hidden]{display:none!important}</style>
 </head><body>
 <script>
-/* storage: a copy on this phone for speed and offline use, synced to this Netlify site's storage under your sync code */
+/* storage: a copy on this phone for speed and offline use, synced to this (password-protected) Netlify site */
 const SYNC_URL="/api/log", LKEY="gymlog-sessions", CKEY="gymlog-synckey";
-let syncKey=null, syncState="off";
-try{syncKey=localStorage.getItem(CKEY);}catch(e){}
+let syncKey="me", syncState="pending";
 function syncLabel(){return syncState==="ok"?" · synced":syncState==="pending"?" · syncing":syncState==="offline"?" · saved on phone, will sync":syncState==="off"?" · not synced":"";}
-async function hashCode(code){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("gymlog:"+code.trim().toLowerCase()));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");}
 const localDB=(()=>{let subs=[];
   const read=()=>{try{return JSON.parse(localStorage.getItem(LKEY)||"[]")}catch(e){return []}};
   const save=a=>{try{localStorage.setItem(LKEY,JSON.stringify(a))}catch(e){}subs.forEach(f=>f())};
@@ -27,14 +25,14 @@ const localDB=(()=>{let subs=[];
   async function push(){
     if(!syncKey){syncState="off";paint();return;}
     syncState="pending";paint();
-    try{const r=await fetch(SYNC_URL,{method:"PUT",headers:{"content-type":"application/json","x-sync-key":syncKey},body:JSON.stringify(read())});
+    try{const r=await fetch(SYNC_URL,{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(read())});
       syncState=r.ok?"ok":"offline";}catch(e){syncState="offline";}
     paint();
   }
   async function pull(){
     if(!syncKey){syncState="off";paint();return;}
     syncState="pending";paint();
-    try{const r=await fetch(SYNC_URL,{headers:{"x-sync-key":syncKey}});if(!r.ok)throw 0;
+    try{const r=await fetch(SYNC_URL,{cache:"no-store"});if(!r.ok)throw 0;
       const server=await r.json();const local=read();const merged=merge(server,local);
       save(merged);
       if(JSON.stringify(merged.map(o=>o.id+(o.deleted?"x":"")).sort())!==JSON.stringify(server.map(o=>o.id+(o.deleted?"x":"")).sort()))await push();
@@ -202,11 +200,6 @@ input:focus{outline:none;background-image:linear-gradient(to bottom,rgba(228,226
   </nav>
 
   <div id="view-today" style="display:grid;gap:var(--gap)">
-    <section id="syncSetup" hidden>
-      <div class="row"><h2>Sync code</h2></div>
-      <p>pick a word or phrase only you know. your history is saved online under it. if the app ever resets, type the same code and everything comes back.</p>
-      <div class="ctrls"><input id="syncCode" type="text" autocomplete="off" autocapitalize="off" placeholder="e.g. green-ladder-48" style="flex:1;min-width:0;font:600 16px var(--font);color:var(--fg);text-align:left"><button class="mini" id="syncSave" type="button" style="color:var(--hi)">save</button></div>
-    </section>
     <section>
       <div class="row"><h2>Day</h2></div>
       <div class="seg days" id="daypick" aria-label="Choose day"></div>
@@ -678,20 +671,13 @@ renderToday();
 </script>
 <input type="file" id="importFile" accept="application/json" hidden>
 <script>
-/* sync code setup */
-function showSetup(show){$("syncSetup").hidden=!show;if(show)setTimeout(()=>$("syncCode").focus(),50);}
-$("syncSave").addEventListener("click",async()=>{const c=$("syncCode").value;if(c.trim().length<6){$("syncCode").value="";$("syncCode").placeholder="at least 6 characters";return;}
-  syncKey=await hashCode(c);try{localStorage.setItem(CKEY,syncKey);}catch(e){}$("syncCode").value="";showSetup(false);await localDB.pull();});
-$("syncCode").addEventListener("keydown",e=>{if(e.key==="Enter")$("syncSave").click();});
-showSetup(!syncKey);
-if(syncKey)localDB.pull();
+localDB.pull();
 /* backup + sync links under the history list */
 const _renderHistory=renderHistory;
 renderHistory=function(){_renderHistory();
   const f=document.createElement("div");f.className="row";f.style.marginTop="12px";
-  f.innerHTML='<span class="small">'+(syncKey?'synced to your site':'not synced yet')+'</span><span style="display:flex;gap:14px"><button class="mini" id="bCode" type="button">sync code</button><button class="mini" id="bExport" type="button">export</button><button class="mini" id="bImport" type="button">import</button></span>';
+  f.innerHTML='<span class="small">saved to your site</span><span style="display:flex;gap:14px"><button class="mini" id="bExport" type="button">export</button><button class="mini" id="bImport" type="button">import</button></span>';
   $("view-history").append(f);
-  $("bCode").onclick=()=>{document.querySelector('nav button[data-view="today"]').click();showSetup(true);};
   $("bExport").onclick=()=>{const blob=new Blob([JSON.stringify(localDB.read(),null,1)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="gym-log-backup-"+new Date().toISOString().slice(0,10)+".json";document.body.append(a);a.click();a.remove();};
   $("bImport").onclick=()=>$("importFile").click();
 };
