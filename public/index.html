@@ -134,6 +134,7 @@ input:focus{outline:none;background-image:linear-gradient(to bottom,rgba(228,226
 .cue li::before{content:"–";position:absolute;left:0;color:var(--muted)}
 [hidden]{display:none!important}
 section,.mrow,#cardio{scroll-margin-top:96px}
+.skipq{display:flex;gap:14px;align-items:baseline;justify-content:flex-end;flex-wrap:wrap;padding:2px 2px 4px}.skipq .mini{color:var(--hi)}
 .form{display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:start}
 @media (max-width:400px){.form{grid-template-columns:1fr}}
 .fig svg{width:150px;height:auto;display:block;filter:url(#ink)}
@@ -392,7 +393,7 @@ const NEXT={A:"B",B:"C",C:"A"};
 
 let sessions=[], db=null, canSave=true, view="today", openCue=null;
 let state=loadDraft()||fresh();
-function fresh(){return {day:null,entries:{},stretch:[],cardio:{},done:{}};}
+function fresh(){return {day:null,entries:{},stretch:[],cardio:{},done:{},skip:{}};}
 /* phases: weeks 1–2 learn (2 sets) · weeks 3–8 build (3 × 8–12) · week 9 on strength (big four at 6–8) */
 const BIG=["legpress","chest","row","pulldown"], TWO=["abductor","adductor","lowback","crunch"];
 function phase(){
@@ -409,7 +410,8 @@ function target(k){
 }
 const isDone=k=>!!(state.done&&state.done[k])||filled(peek(k)).length>=target(k).sets;
 function dayList(d){d=d||currentDay();const o=state.order&&state.order[d];return o&&o.length===DAYS[d].length&&o.every(k=>DAYS[d].includes(k))?o:DAYS[d];}
-function currentKey(){return dayList().find(k=>!isDone(k));}
+const isSkip=k=>!!(state.skip&&state.skip[k]);let openSkip=null;
+function currentKey(){return dayList().find(k=>!isDone(k)&&!isSkip(k));}
 function loadDraft(){try{const s=localStorage.getItem("gymlog-draft");return s?JSON.parse(s):null}catch(e){return null}}
 function saveDraft(){try{localStorage.setItem("gymlog-draft",JSON.stringify(state))}catch(e){}}
 function clearDraft(){try{localStorage.removeItem("gymlog-draft")}catch(e){}}
@@ -432,8 +434,10 @@ function renderToday(){
     const tg=target(k),top=+tg.reps.split("–")[1]||12;
     const ready=lr.length>=2&&lr.every(r=>+r>=top);
     const cur=currentKey()===k;
+    if(isSkip(k))return `<div class="mach done" data-key="${k}"><div class="mhead"><span class="idx num">0${i+1}</span><span class="mname">${m.name}</span><span class="acts"><span class="small">skipped today</span><button class="mini" type="button" data-unskip="${k}">undo</button></span></div></div>`;
     return `<div class="mach${isDone(k)?" done":""}${cur?" cur":""}" data-key="${k}">
-      <div class="mhead"><span class="idx num">0${i+1}</span><span class="mname">${m.name}</span><span class="acts"><button class="mini" type="button" data-cue="${k}">${openCue===k?"form –":"form +"}</button>${isDone(k)?"":`<button class="mini" type="button" data-later="${k}">later</button>`}<button class="mini" type="button" data-done="${k}">${isDone(k)?"undo":"done"}</button></span></div>
+      <div class="mhead"><span class="idx num">0${i+1}</span><span class="mname">${m.name}</span><span class="acts"><button class="mini" type="button" data-cue="${k}">${openCue===k?"form –":"form +"}</button>${isDone(k)?"":`<button class="mini" type="button" data-skipq="${k}">${openSkip===k?"skip –":"skip"}</button>`}<button class="mini" type="button" data-done="${k}">${isDone(k)?"undo":"done"}</button></span></div>
+      ${openSkip===k&&!isDone(k)?`<div class="skipq"><span class="small">machine taken?</span><button class="mini" type="button" data-later="${k}">do it later</button><button class="mini" type="button" data-skip="${k}">skip for today</button></div>`:""}
       <div class="mbody">
         <span class="last num">${l?`last · ${l.w} kg · ${lr.join(" / ")||"–"}`:`first time · start around ${m.start} kg, or the lightest plate`} · ${tg.label}</span>
         ${ready?`<span class="small ready">every set hit ${top} · go one plate up</span>`:''}
@@ -467,13 +471,15 @@ function updateSave(){
 $("daypick").addEventListener("click",ev=>{const b=ev.target.closest("button[data-day]");if(!b)return;state.day=b.dataset.day;saveDraft();renderToday();});
 $("machines").addEventListener("click",ev=>{
   const d=ev.target.closest("[data-done]");if(d){const k=d.dataset.done;if(!state.done)state.done={};
-    if(isDone(k)){ /* undo: reopen; if it was complete from logged sets, clear the last one */
-      if(state.done[k])state.done[k]=false;
-      else{const e=entry(k);for(let j=2;j>=0;j--)if(e.reps[j]!==""){e.reps[j]="";break;}}
+    if(isDone(k)){ /* undo: reopen the whole exercise and clear its sets */
+      state.done[k]=false;const e=entry(k);e.reps=["","",""];
     }else state.done[k]=true;
     saveDraft();renderToday();return;}
+  const sq=ev.target.closest("[data-skipq]");if(sq){openSkip=openSkip===sq.dataset.skipq?null:sq.dataset.skipq;renderToday();return;}
+  const sk=ev.target.closest("[data-skip]");if(sk){if(!state.skip)state.skip={};state.skip[sk.dataset.skip]=true;openSkip=null;saveDraft();renderToday();return;}
+  const us=ev.target.closest("[data-unskip]");if(us){if(state.skip)delete state.skip[us.dataset.unskip];saveDraft();renderToday();return;}
   const lt=ev.target.closest("[data-later]");if(lt){const k=lt.dataset.later,d=currentDay();if(!state.order)state.order={};
-    state.order[d]=dayList(d).filter(x=>x!==k).concat(k);saveDraft();renderToday();return;}
+    state.order[d]=dayList(d).filter(x=>x!==k).concat(k);openSkip=null;saveDraft();renderToday();return;}
   const c=ev.target.closest("[data-cue]");if(c){openCue=openCue===c.dataset.cue?null:c.dataset.cue;renderToday();return;}
   const b=ev.target.closest("button[data-step]");if(!b)return;
   const k=b.closest(".mach").dataset.key,e=entry(k);
@@ -570,24 +576,39 @@ document.querySelector("nav").addEventListener("click",ev=>{
    so they start straight from the tap, sound natural, and keep playing with the screen locked. */
 const MARKS={"stretch":{"len":373.65,"marks":[{"t":8.03,"k":0,"s":0,"name":"hug one knee","side":"right","phase":"say"},{"t":15.97,"k":0,"s":0,"name":"hug one knee","side":"right","phase":"hold"},{"t":48.02,"k":0,"s":1,"name":"hug one knee","side":"left","phase":"say"},{"t":51.41,"k":0,"s":1,"name":"hug one knee","side":"left","phase":"hold"},{"t":83.46,"k":0,"phase":"done"},{"t":83.46,"k":1,"s":0,"name":"figure 4","side":"right","phase":"say"},{"t":95.32,"k":1,"s":0,"name":"figure 4","side":"right","phase":"hold"},{"t":127.37,"k":1,"s":1,"name":"figure 4","side":"left","phase":"say"},{"t":131.26,"k":1,"s":1,"name":"figure 4","side":"left","phase":"hold"},{"t":163.31,"k":1,"phase":"done"},{"t":163.31,"k":2,"s":0,"name":"leg up","side":"right","phase":"say"},{"t":173.79,"k":2,"s":0,"name":"leg up","side":"right","phase":"hold"},{"t":205.84,"k":2,"s":1,"name":"leg up","side":"left","phase":"say"},{"t":209.21,"k":2,"s":1,"name":"leg up","side":"left","phase":"hold"},{"t":241.26,"k":2,"phase":"done"},{"t":241.26,"k":3,"s":0,"name":"kneeling hip stretch","side":"right","phase":"say"},{"t":253.64,"k":3,"s":0,"name":"kneeling hip stretch","side":"right","phase":"hold"},{"t":285.69,"k":3,"s":1,"name":"kneeling hip stretch","side":"left","phase":"say"},{"t":290.74,"k":3,"s":1,"name":"kneeling hip stretch","side":"left","phase":"hold"},{"t":322.79,"k":3,"phase":"done"},{"t":322.79,"k":4,"s":0,"name":"chest opener","side":"","phase":"say"},{"t":339.29,"k":4,"s":0,"name":"chest opener","side":"","phase":"hold"},{"t":371.34,"k":4,"phase":"done"}]},"balance":{"len":74.1,"marks":[{"t":5.18,"side":"right","phase":"hold"},{"t":37.13,"side":"left","phase":"say"},{"t":38.73,"side":"left","phase":"hold"},{"t":70.68,"phase":"done"}]},"rest":{"len":48.27,"marks":[{"t":0.0,"phase":"hold"}]}};
 const PL={rest:{src:"audio/rest.mp3"},balance:{src:"audio/balance.mp3"},stretch:{src:"audio/stretch.mp3"}};
-let active=null, actx=null, uiTimer=null;
+let active=null, ctx=null, uiTimer=null, wake=null;
 for(const n in PL){PL[n].marks=MARKS[n].marks;PL[n].len=MARKS[n].len;}
-function aud(n){const p=PL[n];if(!p.a){p.a=new Audio(p.src);p.a.preload="auto";p.a.addEventListener("ended",()=>onEnd(n));}return p.a;}
-function beep(){try{if(!actx){const C=window.AudioContext||window.webkitAudioContext;if(C)actx=new C();}if(!actx)return;const o=actx.createOscillator(),g=actx.createGain();o.frequency.value=880;g.gain.setValueAtTime(.25,actx.currentTime);g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+.8);o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+.8);}catch(e){}}
-/* clock: the audio's own position; if the audio can't play, a wall clock with beeps instead */
-function now(n){const p=PL[n];if(p.fallback)return p.paused?p.at:p.at+(Date.now()-p.t0)/1000;return aud(n).currentTime;}
+/* Web Audio in "ambient" mode: mixes with your music instead of stopping it */
+function ac(){
+  if(!ctx){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;
+    try{if(navigator.audioSession)navigator.audioSession.type="ambient";}catch(e){}
+    ctx=new C();ctx.onstatechange=()=>{if(ctx.state==="running"&&active&&!PL[active].paused)startSrc(active);};}
+  if(ctx.state!=="running"){try{ctx.resume();}catch(e){}}
+  return ctx;
+}
+function load(n){const p=PL[n];if(p.buf)return;if(p.loading)return;const c=ac();if(!c)return;
+  p.loading=fetch(p.src).then(r=>r.arrayBuffer()).then(b=>new Promise((res,rej)=>c.decodeAudioData(b,res,rej)))
+    .then(buf=>{p.buf=buf;if(p.on&&!p.paused)startSrc(n);}).catch(()=>{p.loading=null;});}
+function stopSrc(n){const p=PL[n];if(p.node){try{p.node.stop();}catch(e){}try{p.node.disconnect();}catch(e){}p.node=null;}}
+function startSrc(n){const p=PL[n];stopSrc(n);if(!p.buf||!ctx)return;const off=now(n);if(off>=p.buf.duration-0.05)return;
+  const s=ctx.createBufferSource();s.buffer=p.buf;s.connect(ctx.destination);try{s.start(0,Math.max(0,off));}catch(e){return;}p.node=s;}
+function beep(){const c=ac();if(!c)return;try{const o=c.createOscillator(),g=c.createGain();o.frequency.value=880;g.gain.setValueAtTime(.25,c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.8);o.connect(g);g.connect(c.destination);o.start();o.stop(c.currentTime+.8);}catch(e){}}
+async function wakeOn(){try{if(!wake&&navigator.wakeLock)wake=await navigator.wakeLock.request("screen");wake&&wake.addEventListener("release",()=>{wake=null;});}catch(e){}}
+function wakeOff(){try{wake&&wake.release();}catch(e){}wake=null;}
+/* clock: wall time, so the count stays right even if the sound gets interrupted */
+function now(n){const p=PL[n];return p.paused?p.at:p.at+(Date.now()-p.t0)/1000;}
 function play(n,at){
   for(const m in PL)if(m!==n&&PL[m].on)stopP(m,true);
-  const p=PL[n],a=aud(n);p.on=true;p.paused=false;p.fallback=false;p.lastHold=null;active=n;
-  try{a.currentTime=at||0;}catch(e){}
-  const pr=a.play();if(pr&&pr.catch)pr.catch(()=>{p.fallback=true;p.at=at||0;p.t0=Date.now();});
-  try{navigator.mediaSession&&(navigator.mediaSession.metadata=new MediaMetadata({title:n==="rest"?"Rest":n==="balance"?"Balance":"Guided stretch",artist:"Gym Log"}));}catch(e){}
+  const p=PL[n];p.on=true;p.paused=false;p.at=at||0;p.t0=Date.now();p.lastHold=null;p.beeped=false;active=n;
+  ac();if(p.buf)startSrc(n);else load(n);wakeOn();
   if(!uiTimer)uiTimer=setInterval(paint,250);paint();
 }
-function pauseP(n){const p=PL[n];if(!p.on)return;if(p.fallback){p.at=now(n);p.paused=true;}else aud(n).pause();p.paused=true;paint();}
-function resumeP(n,at){const p=PL[n];if(at!=null){play(n,at);return;}if(p.fallback){p.t0=Date.now();p.paused=false;}else{const pr=aud(n).play();if(pr&&pr.catch)pr.catch(()=>{p.fallback=true;p.t0=Date.now();p.at=aud(n).currentTime;});}p.paused=false;active=n;paint();}
-function stopP(n,quiet){const p=PL[n];p.on=false;p.paused=false;try{aud(n).pause();}catch(e){}if(active===n)active=null;if(!quiet)paint();}
+function pauseP(n){const p=PL[n];if(!p.on)return;p.at=now(n);p.paused=true;stopSrc(n);paint();}
+function resumeP(n,at){const p=PL[n];if(at!=null){play(n,at);return;}p.t0=Date.now();p.paused=false;active=n;ac();startSrc(n);wakeOn();paint();}
+function stopP(n,quiet){const p=PL[n];stopSrc(n);p.on=false;p.paused=false;if(active===n)active=null;if(!active)wakeOff();if(!quiet)paint();}
 function onEnd(n){if(n==="stretch")stretchDone();stopP(n);}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){if(active&&!PL[active].paused){ac();startSrc(active);wakeOn();}}});
+document.addEventListener("pointerdown",function pre(){ac();for(const n in PL)load(n);document.removeEventListener("pointerdown",pre);},{once:true});
 /* where are we in a track */
 function at(n){const t=now(n),ms=PL[n].marks;let i=-1;for(let j=0;j<ms.length;j++)if(ms[j].t<=t+0.01)i=j;return {t,m:ms[i]||null,i};}
 function paint(){
@@ -596,15 +617,15 @@ function paint(){
     gUI();bUI();if(uiTimer){clearInterval(uiTimer);uiTimer=null;}return;}
   const p=PL[n],{t,m}=at(n);
   let left="",label="",frac=0;
-  if(n==="rest"){const L=45-t;left=Math.max(0,Math.ceil(L));frac=Math.min(1,t/45);label=L>0?(p.label||"resting"):"go · next set";bar.classList.toggle("go",L<=0);
-    if(p.fallback&&L<=0&&!p.beeped){p.beeped=true;beep();}}
+  if(n==="rest"){if(t>=p.len){onEnd(n);return;}const L=45-t;left=Math.max(0,Math.ceil(L));frac=Math.min(1,t/45);label=L>0?(p.label||"resting"):"go · next set";bar.classList.toggle("go",L<=0);
+    if(!p.node&&L<=0&&!p.beeped){p.beeped=true;beep();}}
   else{
     if(m&&m.phase==="hold"){const L=m.t+30-t;left=Math.max(0,Math.ceil(L));frac=Math.min(1,(t-m.t)/30);
-      if(p.fallback&&L<=0&&p.lastHold!==m.t){p.lastHold=m.t;beep();}}
+      if(!p.node&&L<=0&&L>-1&&p.lastHold!==m.t){p.lastHold=m.t;beep();}}
     else{left="";frac=0;}
     label=n==="balance"?`balance${m&&m.side?" · "+m.side+" leg":""}`:(m&&m.name?`${m.name}${m.side?" · "+m.side:""}`:"get your mat ready");
     if(n==="stretch")stretchTick(t);
-    if(p.fallback&&t>=p.len)onEnd(n);
+    if(t>=p.len){onEnd(n);return;}
   }
   if(p.paused)label+=" · paused";
   $("tnum").textContent=left;$("tfill").style.width=(frac*100).toFixed(1)+"%";$("tlabel").textContent=label;
@@ -638,7 +659,7 @@ $("gBtn").addEventListener("click",()=>{const p=PL.stretch;
 $("gRestart").addEventListener("click",()=>{state.stretch=[];saveDraft();document.querySelectorAll("#stretch input[type=checkbox]").forEach(cb=>{cb.checked=false;cb.closest(".chk").classList.remove("on");});play("stretch",0);});
 function gSkip(){const p=PL.stretch;if(!p.on)return;const {m}=at("stretch");const cur=m&&m.k!=null?m.k:firstOpen();
   if(cur!=null&&!state.stretch.includes(cur))return;const k=firstOpen(cur+1)>=0?firstOpen(cur+1):firstOpen();
-  if(k<0){stopP("stretch");return;}if(p.paused){try{aud("stretch").currentTime=startOf(k);}catch(e){}p.at=startOf(k);paint();}else play("stretch",startOf(k));}
+  if(k<0){stopP("stretch");return;}if(p.paused){p.at=startOf(k);paint();}else play("stretch",startOf(k));}
 
 renderToday();
 (async()=>{
