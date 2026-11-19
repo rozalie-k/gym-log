@@ -1,5 +1,5 @@
 /* offline: app files cached; the app is fetched fresh when online so updates arrive; the sync api is never cached */
-const CACHE="gymlog-v5";
+const CACHE="gymlog-v9";
 const FILES=["manifest.webmanifest","icon-192.png","icon-512.png","apple-touch-icon.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)));self.skipWaiting();});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))));self.clients.claim();});
